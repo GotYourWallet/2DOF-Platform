@@ -29,22 +29,9 @@ THE SOFTWARE.
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
 #include "I2Cdev.h"
-
 #include "MPU6050_6Axis_MotionApps20.h"
-//#include "MPU6050.h" // not necessary if using MotionApps include file
 
-// Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
-// is used in I2Cdev.h
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-    #include "Wire.h"
-#endif
-
-// class default I2C address is 0x68
-// specific I2C addresses may be passed as a parameter here
-// AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
-// AD0 high = 0x69
 MPU6050 mpu;
-//MPU6050 mpu(0x69); // <-- use for AD0 high
 
 /* =========================================================================
    NOTE: In addition to connection 3.3v, GND, SDA, and SCL, this sketch
@@ -53,12 +40,10 @@ MPU6050 mpu;
    digital I/O pin 2.
  * ========================================================================= */
 
-#define OUTPUT_READABLE_YAWPITCHROLL
-
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
 bool blinkState = false;
-int loopcount = 0; //loopcounter for debugging
+unsigned int loopcount = 0; //loopcounter for debugging
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -67,17 +52,13 @@ uint8_t devStatus;      // return status after each device operation (0 = succes
 uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
-bool originSet = false; //while the mpu sits motionless during boot set an origin
 
 // orientation/motion vars
 Quaternion q;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
 VectorFloat gravity;    // [x, y, z]            gravity vector
-float euler[3];         // [psi, theta, phi]    Euler angle container
+
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
-float origin[3];        // [yaw, pitch, roll]   stores the origin (0,0,0) during boot
+float origin[3];        // [yaw, pitch, roll]   stores the initial orientation of the MPU
 
 
 // ================================================================
@@ -118,75 +99,17 @@ int posYaw;
 int posPitch;
 int offset; //the calculated offset between origin and current servo position
 
-//Draw a stroke in x direction (+-) (bounds left 0 to right 180)
-int drawX(int distance) {
-  int angle = 0;
-  //add the requested offset to the current position
-  angle = posYaw+distance;
-  
-  //check left and right bound
-  if (angle <=0) {
-    angle = 0;
-  }
-  else if (angle >= 180) {
-    angle =180;
-  }
-
-  //turn the servo by the requested distance up to the set bounds.
-  servoYaw.write(angle);
-  posYaw=angle;
-  // It takes "delay" milliseconds for the drawing stroke to finish. Divide the maximum time it could take by the maximum angle the servo could reach. Multiply by the actual angle you want to move. Use abs() to make the delay always positive.
-  delay(abs(drawDelay/servoRange*distance));
-
-  return 0;
-}
-
-//Draw a stroke in +-y direction (bounds top 0 to bottom 90)
-
-int drawY(int distance) {
-  int angle = 0;
-  //add the requested offset to the current position
-  angle = posPitch+distance;
-  
-  //check upper and lower bound
-  if (angle <=0) {
-    angle = 0;
-  }
-  else if (angle >= 90) {
-    angle =90;
-  }
-
-  //turn the servo by the requested distance up to the set bounds.
-  servoPitch.write(angle);
-  posPitch=angle;
-  // It takes "delay" milliseconds for the drawing stroke to finish. Divide the maximum time it could take by the maximum angle the servo could reach. Multiply by the actual angle you want to move. Use abs() to make the delay always positive.
-  delay(abs(drawDelay/servoRange*distance));
-
-  return 0;
-}
-
 void setup() {
 
-    // join I2C bus (I2Cdev library doesn't do this automatically)
-    #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-        Wire.begin();
-        Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
-    #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
-        Fastwire::setup(400, true);
-    #endif
-
+    
+    Wire.begin();
+    Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
+    
     // initialize serial communication
     // (115200 chosen because it is required for Teapot Demo output, but it's
     // really up to you depending on your project)
     Serial.begin(250000);
-    while (!Serial); // wait for Leonardo enumeration, others continue immediately
-
-    // NOTE: 8MHz or slower host processors, like the Teensy @ 3.3v or Ardunio
-    // Pro Mini running at 3.3v, cannot handle this baud rate reliably due to
-    // the baud timing being too misaligned with processor ticks. You must use
-    // 38400 or slower in these cases, or use some kind of external separate
-    // crystal solution for the UART timer.
-
+    
     // initialize device
     Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
@@ -292,16 +215,16 @@ void loop() {
         // (this lets us immediately read more without waiting for an interrupt)
         fifoCount -= packetSize;
 
-        if(loopcount == 10) {
-
-          //Initialize Positon
+        //move servos to the starting position
+        if(loopcount == 1) {
           posPitch = 45;
           servoPitch.write(posPitch);
           posYaw = 90;
           servoYaw.write(posYaw);
         }
-        
-        if(loopcount == 1999) {
+
+        //once the MPU values have stabilized (after about 2000 cycles) record the origin (= target orientation)
+        if(loopcount == 2000) {
           mpu.dmpGetQuaternion(&q, fifoBuffer);
           mpu.dmpGetGravity(&gravity, &q);
           mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
@@ -309,28 +232,26 @@ void loop() {
           origin[0] = (ypr[0]);
           origin[1] = (ypr[1]);
           origin[2] = (ypr[2]);
-
-          originSet = true;
+          
         }
 
-        #ifdef OUTPUT_READABLE_YAWPITCHROLL
-            // display Euler angles in degrees
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            mpu.dmpGetGravity(&gravity, &q);
-            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            Serial.print("ypr\t");
-            Serial.print(origin[0] * 180/M_PI);
-            Serial.print("\t");
-            Serial.print(loopcount);
-            Serial.print("\t");
-            Serial.print(offset);
-            Serial.print("\t");
-            Serial.print(ypr[0] * 180/M_PI);
-            Serial.print("\t");
-            Serial.print(ypr[1] * 180/M_PI);
-            Serial.print("\t");
-            Serial.println(ypr[2] * 180/M_PI);
-        #endif
+        // display Euler angles in degrees
+        mpu.dmpGetQuaternion(&q, fifoBuffer);
+        mpu.dmpGetGravity(&gravity, &q);
+        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+        Serial.print("ypr\t");
+        Serial.print(origin[0] * 180/M_PI);
+        Serial.print("\t");
+        Serial.print(loopcount);
+        Serial.print("\t");
+        Serial.print(offset);
+        Serial.print("\t");
+        Serial.print(ypr[0] * 180/M_PI);
+        Serial.print("\t");
+        Serial.print(ypr[1] * 180/M_PI);
+        Serial.print("\t");
+        Serial.println(ypr[2] * 180/M_PI);
+        
 
         if(loopcount > 2000) {
           offset = (ypr[0] * 180/M_PI) - (origin[0] * 180/M_PI);
