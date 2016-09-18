@@ -70,63 +70,62 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-//--------------------------------------
+// ================================================================
+// ===                      SERVO SETUP                         ===
+// ================================================================
 
-//Gyro + Accel
+//MPU 6050 Gyro + Accel
 //Shematic Pinout http://diyhacking.com/arduino-mpu-6050-imu-sensor-tutorial/
-
-//2 DOF Platform actuated using standard MTG 995 Servos @4.8V
+//2 DOF Platform actuated using standard Servos @4.8V
 //by Philipp Schilcher
 
-//references: Sweep by BARRAGAN & Scott Fitzgerald
-
-
 #include <Servo.h>
-
-//time for the program to wait before in/decrementing the angle [ms]
-#define wait 30
-//time a drawing stroke takes to finish the whole 180 degress
-#define drawDelay 3000
-//maximum actuation angle of a servo
-#define servoRange 180
 
 //2 Servo objects for controlling 2 actual servos in the yaw (lower) and pitch (upper) direction
 Servo servoYaw;
 Servo servoPitch;
 
-//the current position (angle) of the servo
-int posYaw;
-int posPitch;
+int posYaw; //the current position (angle) of the servo
+int posPitch; //the current position (angle) of the servo
 int offset; //the calculated offset between origin and current servo position
+
+// ================================================================
+// ===                         SETUP                            ===
+// ================================================================
 
 void setup() {
 
     
     Wire.begin();
     Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
+    #if 0   
+      // initialize serial communication
+      // (115200 chosen because it is required for Teapot Demo output, but it's
+      // really up to you depending on your project)
+      Serial.begin(250000);
     
-    // initialize serial communication
-    // (115200 chosen because it is required for Teapot Demo output, but it's
-    // really up to you depending on your project)
-    Serial.begin(250000);
+      // initialize device
+      Serial.println(F("Initializing I2C devices..."));
+    #endif
     
-    // initialize device
-    Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
     pinMode(INTERRUPT_PIN, INPUT);
+    
+    #if 0 
+      // verify connection
+      Serial.println(F("Testing device connections..."));
+      Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
+  
+      // wait for ready
+      Serial.println(F("\nSend any character to begin DMP programming and demo: "));
+      while (Serial.available() && Serial.read()); // empty buffer
+      while (!Serial.available());                 // wait for data
+      while (Serial.available() && Serial.read()); // empty buffer again
 
-    // verify connection
-    Serial.println(F("Testing device connections..."));
-    Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
-
-    // wait for ready
-    Serial.println(F("\nSend any character to begin DMP programming and demo: "));
-    while (Serial.available() && Serial.read()); // empty buffer
-    while (!Serial.available());                 // wait for data
-    while (Serial.available() && Serial.read()); // empty buffer again
-
-    // load and configure the DMP
-    Serial.println(F("Initializing DMP..."));
+      // load and configure the DMP
+      Serial.println(F("Initializing DMP..."));
+    #endif
+    
     devStatus = mpu.dmpInitialize();
 
     // supply your own gyro offsets here, scaled for min sensitivity
@@ -136,22 +135,29 @@ void setup() {
     mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
 
     // make sure it worked (returns 0 if so)
+    #if 0
     if (devStatus == 0) {
-        // turn on the DMP, now that it's ready
-        Serial.println(F("Enabling DMP..."));
+     
+          // turn on the DMP, now that it's ready
+          Serial.println(F("Enabling DMP..."));
+    #endif
+    
         mpu.setDMPEnabled(true);
-
+    #if 0 
         // enable Arduino interrupt detection
         Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
+    #endif
         attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), dmpDataReady, RISING);
         mpuIntStatus = mpu.getIntStatus();
-
+    #if 0 
         // set our DMP Ready flag so the main loop() function knows it's okay to use it
         Serial.println(F("DMP ready! Waiting for first interrupt..."));
+    #endif    
         dmpReady = true;
 
         // get expected DMP packet size for later comparison
         packetSize = mpu.dmpGetFIFOPacketSize();
+    #if 0 
     } else {
         // ERROR!
         // 1 = initial memory load failed
@@ -161,7 +167,7 @@ void setup() {
         Serial.print(devStatus);
         Serial.println(F(")"));
     }
-
+    #endif
     // configure LED for output
     pinMode(LED_PIN, OUTPUT);
 
@@ -201,8 +207,9 @@ void loop() {
     if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
         // reset so we can continue cleanly
         mpu.resetFIFO();
-        Serial.println(F("FIFO overflow!"));
-
+        #if 0
+          Serial.println(F("FIFO overflow!"));
+        #endif 
     // otherwise, check for DMP data ready interrupt (this should happen frequently)
     } else if (mpuIntStatus & 0x02) {
         // wait for correct available data length, should be a VERY short wait
@@ -239,6 +246,7 @@ void loop() {
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+#if 0   
         Serial.print("ypr\t");
         Serial.print(origin[0] * 180/M_PI);
         Serial.print("\t");
@@ -251,7 +259,7 @@ void loop() {
         Serial.print(ypr[1] * 180/M_PI);
         Serial.print("\t");
         Serial.println(ypr[2] * 180/M_PI);
-        
+#endif      
 
         if(loopcount > 2000) {
           offset = (ypr[0] * 180/M_PI) - (origin[0] * 180/M_PI);
