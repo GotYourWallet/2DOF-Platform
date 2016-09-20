@@ -139,10 +139,10 @@ void setup() {
   devStatus = mpu.dmpInitialize();
 
   // supply your own gyro offsets here, scaled for min sensitivity
-  mpu.setXGyroOffset(220);
+  mpu.setXGyroOffset(220); //220
   mpu.setYGyroOffset(76);
   mpu.setZGyroOffset(-85);
-  mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+  mpu.setZAccelOffset(1688); // 1688 factory default for my test chip
 
   // make sure it worked (returns 0 if so)
 
@@ -215,65 +215,74 @@ void loop() {
     // otherwise, check for DMP data ready interrupt (this should happen frequently)
   } else if (mpuIntStatus & 0x02) {
     // wait for correct available data length, should be a VERY short wait
-    while (fifoCount < packetSize) 
+    while (fifoCount < packetSize)
       fifoCount = mpu.getFIFOCount();
   }
-    // read a packet from FIFO
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
+  // read a packet from FIFO
+  mpu.getFIFOBytes(fifoBuffer, packetSize);
 
-    // track FIFO count here in case there is > 1 packet available
-    // (this lets us immediately read more without waiting for an interrupt)
-    fifoCount -= packetSize;
+  // track FIFO count here in case there is > 1 packet available
+  // (this lets us immediately read more without waiting for an interrupt)
+  fifoCount -= packetSize;
 
-    //record the origin once the gyro data has stabilized
-    if (loopcount == 2000) {
-      mpu.dmpGetQuaternion(&q, fifoBuffer);
-      mpu.dmpGetGravity(&gravity, &q);
-      mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      origin[0] = (ypr[0]);
-      origin[1] = (ypr[1]);
-      origin[2] = (ypr[2]);
-
-      // blink LED to indicate that origin has been set
-      blinkState = !blinkState;
-      digitalWrite(LED_PIN, blinkState);
-    }
-
-    // display Euler angles in degrees
+  //record the origin once the gyro data has stabilized
+  if (loopcount == 2000) {
     mpu.dmpGetQuaternion(&q, fifoBuffer);
     mpu.dmpGetGravity(&gravity, &q);
     mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+    origin[0] = (ypr[0]);
+    origin[1] = (ypr[1]);
+    origin[2] = (ypr[2]);
+
+    // blink LED to indicate that origin has been set
+    blinkState = !blinkState;
+    digitalWrite(LED_PIN, blinkState);
+  }
+
+  // display Euler angles in degrees
+  mpu.dmpGetQuaternion(&q, fifoBuffer);
+  mpu.dmpGetGravity(&gravity, &q);
+  mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
 #if 1
-    Serial.print("ypr\t");
-    Serial.print(origin[0] * 180 / M_PI);
-    Serial.print("\t");
-    Serial.print(loopcount);
-    Serial.print("\t");
-    Serial.print(offset);
-    Serial.print("\t");
-    Serial.print(ypr[0] * 180 / M_PI);
-    Serial.print("\t");
-    Serial.print(ypr[1] * 180 / M_PI);
-    Serial.print("\t");
-    Serial.println(ypr[2] * 180 / M_PI);
+  Serial.print("ypr\t");
+  Serial.print(origin[0] * 180 / M_PI);
+  Serial.print("\t");
+  Serial.print(loopcount);
+  Serial.print("\t");
+  Serial.print(offset);
+  Serial.print("\t");
+  Serial.print(ypr[0] * 180 / M_PI);
+  Serial.print("\t");
+  Serial.print(ypr[1] * 180 / M_PI);
+  Serial.print("\t");
+  Serial.println(ypr[2] * 180 / M_PI);
 #endif
 
-    //turn the stepper
-    if (loopcount > 2000) {
-      offset = (ypr[0] * 180 / M_PI) - (origin[0] * 180 / M_PI);
+  //turn the stepper
+  if (loopcount > 2000) {
+    offset = (ypr[0] * 180 / M_PI) - (origin[0] * 180 / M_PI);
 
-      if (offset >= 1) {
-        Direction = 1;
-        stepper(1);        
-      } else if (offset <= -1) {
-        Direction = 0;
-        stepper(1);
+    if (offset >= 1) {
+      Direction = 1;
+      if (offset >= 4) {
+        stepper(2);
+      } else {
+        stepper(offset);
+      }
+    } else if (offset <= -1) {
+      Direction = 0;
+      if (offset <= -4) {
+        stepper (2);
+      } else {
+        stepper(-offset);
       }
     }
 
-    //count the number of program loops for debugging
-    loopcount += 1 ;
-  
+  }
+
+  //count the number of program loops for debugging
+  loopcount += 1 ;
+
 }
 
 //stepping through this pattern moves the rotor of the stepper motor by 1 step
